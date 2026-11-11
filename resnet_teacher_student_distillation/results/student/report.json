@@ -1,0 +1,38 @@
+{
+  "params": 4896418,
+  "teacher_path": "/content/drive/MyDrive/Operation90_TwoStage/Teacher_WRN28_10_val45k_seed17/teacher_final_ema.pth",
+  "train_size": 45000,
+  "holdout_size": 5000,
+  "tail_snapshots": 11,
+  "runtime_hours": 2.282301676472028,
+  "candidates": {
+    "final_ema": {
+      "multi": {
+        "csv": "submission_final_ema_multi.csv",
+        "val_accuracy": 97.7
+      },
+      "flip": {
+        "csv": "submission_final_ema_flip.csv",
+        "val_accuracy": 97.54
+      },
+      "cardinal": {
+        "csv": "submission_final_ema_cardinal.csv",
+        "val_accuracy": 97.68
+      }
+    },
+    "tail_avg": {
+      "multi": {
+        "csv": "submission_tail_avg_multi.csv",
+        "val_accuracy": 97.6
+      },
+      "flip": {
+        "csv": "submission_tail_avg_flip.csv",
+        "val_accuracy": 97.72
+      },
+      "cardinal": {
+        "csv": "submission_tail_avg_cardinal.csv",
+        "val_accuracy": 97.68
+      }
+    }
+  }
+}
