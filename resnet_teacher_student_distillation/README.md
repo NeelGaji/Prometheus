@@ -171,7 +171,7 @@ This process does not run any training epochs and does not require model checkpo
 
 ## Saved artifacts and releases
 
-The smaller results and the student weights are stored in this repository. The larger teacher weights and the resume checkpoints are in the GitHub Release: **[RELEASE_LINK_HERE]**
+The smaller results and the student weights are stored in this repository. The larger teacher weights and the resume checkpoints are in the GitHub Release: **[v1.0-weights](https://github.com/NeelGaji/Prometheus/releases/tag/v1.0-weights)**
 
 | File | Location | Purpose |
 | --- | --- | --- |
