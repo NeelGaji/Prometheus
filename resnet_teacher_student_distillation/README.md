@@ -1,97 +1,87 @@
 # ResNet Teacher–Student Distillation with Rotation Self-Distillation
 
-This folder contains our teacher–student experiment for the NYU Tandon CIFAR-10 ResNet challenge. Our goal was to train an accurate residual network while keeping the submitted student below 5 million trainable parameters.
+We trained a compact residual network for the CIFAR-10 challenge for our Deep Learning course. Our final student has **4,896,418 trainable parameters** and achieved **87.90% private accuracy** and **90.40% public accuracy** on Kaggle.
 
-We first trained a larger teacher from scratch. We then trained a smaller student using the correct labels, the teacher's predictions, and a rotation-based self-distillation task. The teacher is needed during student training, but it is not part of the final prediction model.
+We first trained a larger teacher from scratch, then used its predictions to guide a smaller student. We also gave the student a rotation task and used those predictions for self-distillation. Both models used only the permitted competition training data. The teacher was used during training and was not part of the submitted network.
 
-This folder is one experiment within our shared team repository. The project report is a separate document.
+This folder contains this experiment, its executed notebooks, and its saved results.
 
-## Folder contents
+## Final result
 
-This folder is `resnet_teacher_student_distillation/` in the repository.
-
-| Path | Contents |
+| Measurement | Result |
 | --- | --- |
-| `README.md` | This explanation and reproduction steps |
-| `notebooks/01_training_results.ipynb` | Executed training notebook, including the full training log |
-| `notebooks/02_results_graphs.ipynb` | Executed graph notebook |
-| `results/teacher/` | Teacher training history |
-| `results/student/` | Student weights, training history, `report.json`, prediction CSVs, and saved test outputs |
-| `figures/` | Training curves, prediction-method comparison, parameter count, and predicted class distribution |
+| Student | WRN-34, width factor 3.25, with a rotation head |
+| Trainable parameters, including the rotation head | 4,896,418 |
+| Parameter limit | 5,000,000 |
+| Submitted file | `submission_final_ema_multi.csv` |
+| Kaggle private accuracy | **87.90%** |
+| Kaggle public accuracy | **90.40%** |
+| Validation accuracy for this candidate | 97.70% |
 
-The teacher weights and the resume checkpoints are too large for the repository. They are in the GitHub Release described in "Saved artifacts and releases" below.
+The validation and Kaggle scores come from different image sets. Our validation accuracy was much higher than our hidden-test accuracy, so it was not a reliable estimate of the final competition result.
 
 ## Our approach
 
-### 1. Use a shared training and validation split
+### Teacher guidance
 
-The competition provides 50,000 labeled training images and 2,000 unlabeled evaluation images. We use 45,000 labeled images for training and keep 5,000 for validation, with 500 validation images per class. Both training stages use the same split.
+We trained a WRN-28-10 teacher for 300 epochs on 45,000 images and kept 5,000 for validation, with 500 images per class. The teacher has 36,479,194 parameters. It is only a training aid and is not included in the submitted network.
 
-Validation images are used to check performance and compare prediction choices. They are not included in the training loss. The hidden competition labels are not available to this notebook.
+We then trained the WRN-34 student from scratch for 330 epochs using the same split. The student learned from both the correct labels and the frozen teacher’s class probabilities.
 
-### 2. Train a larger teacher
+We used a distillation temperature of 4. The teacher-loss weight started at 0.88 and fell to 0.60 over the last 120 epochs, giving the correct labels more influence near the end.
 
-We train a WRN-28-10 teacher for 300 epochs from random initialization. WRN means Wide Residual Network: it uses residual connections and wider convolutional layers. The teacher learns from the permitted training images and their correct labels.
+### Rotation learning and self-distillation
 
-The teacher has 36,479,194 parameters. It is a training aid; the submitted student is the network we check against the 5 million parameter limit. We do not load externally pretrained weights or use an external training dataset.
+We made four views of each student training image, rotated by 0, 90, 180, and 270 degrees. An extra output layer predicted 40 combinations of object class and rotation.
 
-### 3. Train a smaller student with teacher guidance
+We averaged the class scores associated with the correct rotation across these views. Their probabilities guided the student’s normal classification output. Gradients did not flow back through these target probabilities during that update.
 
-The student is a WRN-34 with width factor 3.25. It is trained for 330 epochs from random initialization. Its loss includes the correct class labels and a knowledge-distillation term that encourages its class probabilities to resemble the frozen teacher's probabilities.
+This let the student learn from its own rotation predictions as well as from the larger teacher.
 
-The teacher's probabilities give the student information about several possible classes, rather than only the single correct class. The teacher stays frozen during this stage.
+The rotation-label and self-distillation losses each had a weight of 0.5. We increased their contribution gradually over the first ten epochs.
 
-### 4. Add rotation-based self-distillation
+Test predictions used the normal ten-class output. We still included the extra rotation head in the full parameter count.
 
-During student training, we create four rotated views of each image: 0, 90, 180, and 270 degrees. An extra head predicts a combination of image class and rotation, giving 40 possible outputs: 10 classes times 4 rotations.
+### Training and prediction
 
-We combine information from these rotation predictions into a class distribution. The normal classification head is encouraged to match this detached distribution. This is the self-distillation part: the student learns from information produced within its own network, in addition to learning from the external teacher.
+We used SGD with momentum, weight decay, a short learning-rate warm-up, and cosine decay.
 
-At prediction time, we use the normal classification head. We include the extra rotation head when reporting the student's full parameter count.
+Image augmentation included random crops, horizontal flips, TrivialAugmentWide, cutout, occasional grayscale, and mild blur, JPEG compression, and color changes. Mixup was disabled in this experiment.
 
-### 5. Make training more stable
+We kept an exponential moving average (EMA) of the model weights. We also averaged late EMA checkpoints as a separate prediction option.
 
-We use image augmentation, SGD with momentum, weight decay, learning-rate warm-up, and cosine learning-rate decay. Augmentation includes random crops, horizontal flips, TrivialAugmentWide, cutout, and occasional additional image changes. Mixup is disabled in this experiment.
+We compared these weights with flip, multi-view, and cardinal test-time augmentation (TTA). TTA averages predictions across different views of an image without adding model parameters.
 
-We also keep an exponential moving average (EMA) of model weights. EMA smooths weight updates over training. A separate tail-averaged candidate averages weights saved near the end of student training.
+Several settings changed from our earlier experiments, so these results do not measure the effect of self-distillation alone.
 
-### 6. Compare prediction choices
-
-We evaluate final EMA and tail-averaged student weights using the notebook's flip, multi, and cardinal test-time augmentation (TTA) methods. TTA combines predictions from different views of an image. These are alternative prediction choices for the same student architecture; the teacher is not used for inference.
-
-## Main settings
+## Training settings
 
 | Setting | Teacher | Student |
 | --- | --- | --- |
 | Architecture | WRN-28-10 | WRN-34, width 3.25 |
 | Epochs | 300 | 330 |
-| Batch size | 128 | 64 original images; four rotated views during training |
-| Initial learning rate | 0.1 | 0.04625 |
+| Batch size | 128 | 64 original images, expanded to four views |
+| Peak learning rate | 0.1 | 0.04625 |
 | Optimizer | SGD, momentum 0.9 | SGD, momentum 0.9 |
 | Weight decay | 0.0005 | 0.0005 |
-| Learning-rate warm-up | 5 epochs | 5 epochs |
+| Warm-up | 5 epochs | 5 epochs |
+| Schedule | Cosine decay | Cosine decay |
 | EMA decay | 0.999 | 0.999 |
 | Model seed | 17 | 41 |
-| Distillation temperature | Not used | 4 |
-| Teacher distillation weight | Not used | 0.88, decreasing to 0.60 over the last 120 epochs |
-| Rotation task | Disabled | Enabled |
-| Rotation and self-distillation weights | Not used | 0.5 each, with a 10-epoch ramp-up |
+| Training and validation images | 45,000 / 5,000 | Same split |
 
-## Recorded results
+## Validation results
 
-These values come from the saved histories and student `report.json`. They are validation measurements, not hidden Kaggle test scores.
+The best EMA validation scores seen during training were:
 
-| Measurement | Result |
-| --- | --- |
-| Best teacher EMA validation accuracy in history | 97.24%, epoch 258 |
-| Best student EMA validation accuracy in history | 97.38%, epoch 300 |
-| Student trainable parameters, including the rotation head | 4,896,418 |
-| Maximum allowed student parameters | 5,000,000 |
-| Remaining parameter allowance | 103,582 |
+- **Teacher:** 97.24% at epoch 258.
+- **Student:** 97.38% at epoch 300.
 
-The best value recorded during training does not necessarily describe the final exported checkpoint. The prediction candidates below were evaluated separately after training, using TTA.
+These best-epoch scores are separate from the fixed final weights used to generate the submission files.
 
-| Student weights | TTA method | Validation accuracy |
+After training, we compared six prediction options:
+
+| Student weights | TTA | Validation accuracy |
 | --- | --- | --- |
 | Tail average | Flip | 97.72% |
 | Final EMA | Multi | 97.70% |
@@ -100,128 +90,142 @@ The best value recorded during training does not necessarily describe the final 
 | Tail average | Multi | 97.60% |
 | Final EMA | Flip | 97.54% |
 
-The highest recorded candidate is `submission_tail_avg_flip.csv`. The training notebook labels `submission_final_ema_multi.csv` as its primary candidate. These filenames identify different predictions, so preserve the exact filename when recording a Kaggle result.
+The top two differed by only one of the 5,000 validation images. Our submitted file used **final EMA with multi-view TTA**. The Kaggle scores at the top of this README belong to that file.
 
-On 5,000 validation images, the difference between 97.72% and 97.70% is only one image. We therefore treat the leading candidates as very close. Repeatedly choosing settings on this validation split can also make its scores optimistic.
+## Graphs
 
-No verified Kaggle score for this exact run is included here. A validation score must not be presented as the competition test score. Add the actual public or private Kaggle result, with its exact CSV filename, when it is available.
-
-## How to read the graphs
-
-### Teacher and student training curves
+### Training curves
 
 ![Teacher training curves](figures/teacher_training_curves.png)
 
 ![Student training curves](figures/student_training_curves.png)
 
-The loss curves fall steadily, showing that both models reduce their training objectives. The student loss includes several terms, so its numerical value should not be compared directly with the teacher's loss.
+Both losses fell steadily, and validation accuracy improved quickly before leveling off. EMA made the validation curves smoother.
 
-Validation accuracy rises quickly and then improves more slowly. EMA produces a smoother curve, especially early in training. Training accuracy is measured on harder augmented images, which helps explain why it is lower than clean-image validation accuracy.
+Training accuracy was measured on harder augmented images, which helps explain why it was below clean-image validation accuracy. The student combines several losses, so its loss value is not directly comparable with the teacher’s.
 
-The learning-rate curves show a short warm-up followed by a gradual decrease toward zero. The validation curves do not show an obvious sustained decline near the end, although the curves alone cannot prove generalization to the hidden test set.
+### Comparing prediction methods
 
-### Prediction-method comparison
+![Prediction methods](figures/student_prediction_methods.png)
 
-![Prediction-method comparison](figures/student_prediction_methods.png)
+The methods performed very similarly on validation. More image views did not always improve accuracy. The horizontal axis is shortened to make the small differences visible.
 
-This chart compares validation scores for the different weights and TTA choices. Tail-averaged weights with flip TTA have the highest recorded score, but the leading methods are very close. The horizontal axis is shortened to make these small differences visible.
-
-### Teacher–student comparison
+### Teacher and student validation accuracy
 
 ![Teacher and student validation accuracy](figures/teacher_student_validation.png)
 
-This chart compares their EMA validation curves. Each horizontal position is an epoch within that model's own training, not equal elapsed time. The student has a separate training stage and a different objective. Its slightly higher best accuracy is encouraging, but proving that distillation caused the gain would require a matching student run without distillation.
+The student slightly exceeded the teacher’s best EMA validation score. Each curve belongs to a separate training stage, so equal epoch numbers do not mean equal elapsed time.
 
-### Parameter budget
+A matching student run without distillation would be needed to measure how much teacher guidance helped.
 
-![Student parameter count](figures/student_parameter_count.png)
-
-The chart uses the parameter count recorded in `report.json`. It shows that the student, including the auxiliary head, is below the limit. The teacher's parameters are not added to the inference model.
-
-### Predicted class distribution
+### Predicted classes
 
 ![Predicted class distribution](figures/predicted_class_distribution.png)
 
-This chart counts the test images assigned to each class by `submission_tail_avg_flip.csv`, the candidate selected by the graph cell from validation results. It can reveal a strong concentration in one predicted class. It does not measure accuracy or show the true class distribution, because test labels are hidden.
+This shows how many test images were assigned to each class by `submission_tail_avg_flip.csv`, the validation-leading option chosen by the graph notebook.
 
-## Reproduce training in Google Colab
+It is a count of predictions, not per-class accuracy.
 
-1. Open `notebooks/01_training_results.ipynb` in Colab. Its existing outputs can be read without rerunning it.
-2. For a new training run, select a GPU runtime. An A100 is useful for speed; runtime availability is controlled by Colab.
-3. Obtain the permitted competition dataset as `data-DL.zip`. Upload it when prompted, or place it at `MyDrive/data-DL.zip` before running.
-4. Run the training cell and authorize the Google Drive mount.
-5. Keep the default two-stage configuration to train the teacher first and the student second. No existing model checkpoint is required for a fresh run.
-6. Outputs are written under `/content/drive/MyDrive/Operation90_TwoStage/`. The teacher and student have separate run folders.
-7. Preserve both run folders. `last.pth` saves progress each epoch. If a session ends, reconnect, mount the same Drive, provide the dataset again if needed, and rerun with the same settings to resume.
+## Folder contents
 
-The full workload is 300 teacher epochs followed by 330 student epochs. The student processes four rotated views per original image and also evaluates a frozen teacher during training. Plan for hours of GPU time, rather than a short demonstration. Actual time depends strongly on the assigned GPU, storage, and session interruptions. Histories record `epoch_seconds`; these timings do not include all data preparation and final prediction work.
+| Path | Contents |
+| --- | --- |
+| `notebooks/01_training_results.ipynb` | Training code with saved execution output |
+| `notebooks/02_results_graphs.ipynb` | Graph code with saved figures |
+| `results/teacher/history.csv` | Teacher training history |
+| `results/student/` | Student weights, history, report, prediction CSVs, and logits |
+| `figures/` | PNG graphs |
 
-This version is Colab-specific. It uses `google.colab`, a Drive mount, `/content/` paths, and the fixed dataset filename above. It will need path and input-handling changes to run as an ordinary local Jupyter notebook. Local extraction and cache files are temporary; Drive checkpoints persist. Seeds help repeat the experiment, but exact numerical agreement across hardware and software versions is not guaranteed.
+## Run the training notebook
 
-The notebook uses PyTorch, torchvision, NumPy, pandas, Pillow, tqdm, and Colab utilities. The graph notebook also uses Matplotlib. It does not install a pinned environment automatically. Preserve the package versions and GPU information printed by the executed run when documenting the environment.
+The training notebook was written for **Google Colab**. It uses a GPU, a Google Drive mount, and `/content/` paths. Running it in another environment requires changes to the paths and file-upload steps.
 
-## Recreate the graphs without training
+1. Open `notebooks/01_training_results.ipynb` in Colab and select a GPU runtime.
+2. Upload the permitted dataset as `data-DL.zip` when prompted, or place it at `MyDrive/data-DL.zip` first.
+3. Run the notebook and authorize Google Drive access.
+4. With the default two-stage settings, the teacher trains first and the student follows. Both start from scratch if their output folders have no existing checkpoints.
 
-1. Open `notebooks/02_results_graphs.ipynb` in Colab and select a CPU runtime.
-2. Run the first cell. Upload `results/teacher/history.csv` and `results/student/student_submissions.zip` together.
-3. Run the second cell. It reads the student's history, report, and prediction CSV directly from the ZIP.
-4. Download `all_training_graphs.zip`. Copy its PNG files into this folder's `figures/` directory so the images above display on GitHub.
+Outputs are saved under:
 
-This process does not run any training epochs and does not require model checkpoints or a GPU. Confusion matrices and per-class accuracy are not included: they require validation predictions and true validation labels.
+```text
+/content/drive/MyDrive/Operation90_TwoStage/
+```
 
-## Saved artifacts and releases
+The teacher and student have separate run folders. The full run takes hours, depending on the GPU and storage. Student training processes four rotated views for each image and also runs the frozen teacher.
 
-The smaller results and the student weights are stored in this repository. The larger teacher weights and the resume checkpoints are in the GitHub Release: **[v1.0-weights](https://github.com/NeelGaji/Prometheus/releases/tag/v1.0-weights)**
+The notebook uses PyTorch, torchvision, NumPy, pandas, Pillow, tqdm, and Colab utilities. The graph notebook also uses Matplotlib.
 
-| File | Location | Purpose |
+## Make the graphs without training
+
+No GPU or model weights are needed for the saved-history graphs.
+
+1. Download `results/teacher/history.csv` and the `results/student/` folder.
+2. Compress the student folder into a ZIP that keeps the folder inside the archive. For example, it should contain `student/history.csv` and `student/report.json`.
+3. Open `notebooks/02_results_graphs.ipynb` in Colab with a CPU runtime.
+4. Run the first cell and upload the teacher history and student-folder ZIP together.
+5. Run the second cell.
+
+The notebook displays the figures and downloads `all_training_graphs.zip`.
+
+The smaller `student_submissions.zip` in the repository contains history, report, and prediction files at the archive root. The current graph notebook expects a folder inside the ZIP, so use the folder ZIP described above.
+
+## Weights and checkpoints
+
+The teacher weights and resume checkpoints are available in [release v1.0-weights](https://github.com/NeelGaji/Prometheus/releases/tag/v1.0-weights).
+
+| File | Location | Use |
 | --- | --- | --- |
 | `student_final_ema.pth` | `results/student/` | Final EMA student weights |
-| `student_tail_avg.pth` | `results/student/` | Tail-averaged student weights |
-| `history.csv` | `results/teacher/` | Teacher training history |
-| `history.csv` | `results/student/` | Student training history |
-| `report.json` | `results/student/` | Parameter count and validation results |
-| `submission_*.csv` | `results/student/` | Competition predictions |
-| `test_logits_*.npy` | `results/student/` | Saved model outputs for the test images |
-| `student_submissions.zip` | `results/student/` | Student `history.csv`, `report.json`, and the six prediction CSVs; this is the file to upload to the graph notebook |
-| `teacher_final_ema.pth` | Release | Teacher weights needed to train the student separately |
-| `teacher_last.pth` | Release | Optional checkpoint for resuming teacher training |
-| `student_last.pth` | Release | Optional checkpoint for resuming student training |
+| `student_tail_avg.pth` | `results/student/` | Late-averaged student weights |
+| Teacher and student `history.csv` | Their results folders | Per-epoch training measurements |
+| `report.json` | `results/student/` | Parameter count and validation scores |
+| `submission_*.csv` | `results/student/` | Test predictions |
+| `test_logits_*.npy` | `results/student/` | Saved test outputs |
+| `student_submissions.zip` | `results/student/` | Packaged history, report, and prediction CSVs |
+| `teacher_final_ema.pth` | Release | Teacher weights for separate student training |
+| `teacher_last.pth` | Release | Optional checkpoint to resume teacher training |
+| `student_last.pth` | Release | Optional checkpoint to resume student training |
 
-The two `last.pth` files were renamed for the release because both have the same original name.
+### Train only the student
 
-### Train the student separately
-
-Download `teacher_final_ema.pth` from the release and place it in Google Drive. In the training notebook's settings cell, set:
+Download the teacher’s EMA weights into Google Drive. Set these values in the training notebook, using the file’s actual path:
 
 ```python
 STAGE = 'student'
 TEACHER_CHECKPOINT = '/content/drive/MyDrive/teacher_final_ema.pth'
 ```
 
-Change the path to match the file's actual location. This trains the student with our saved teacher, without repeating teacher training. Keep the same dataset and the same validation split.
+This skips teacher training and uses its frozen weights to guide the student. Keep the original dataset and validation split.
 
-### Optional: resume interrupted training
+A fresh student run needs an output folder without an existing student checkpoint.
 
-The two `last.pth` files are only needed to resume training. They are not needed to make graphs or predictions from the exported student weights.
+### Resume an interrupted run
 
-1. Download `teacher_last.pth` or `student_last.pth` from the release.
-2. Create a new folder in Google Drive, for example `MyDrive/resume_teacher`, and place the file inside it. Rename it back to `last.pth`.
-3. In the settings cell, set `STAGE` to `'teacher'` or `'student'` (not `'both'`) and set `RESUME_SOURCE_DIR` to that folder, for example:
+The release gives the two `last.pth` files different names so they can be distinguished.
+
+1. Download the checkpoint for the stage you want to resume.
+2. Rename it to `last.pth`.
+3. Put it in a separate Drive folder, such as `MyDrive/resume_student`.
+4. Select one stage and set the source folder:
 
 ```python
 STAGE = 'student'
 RESUME_SOURCE_DIR = '/content/drive/MyDrive/resume_student'
+TEACHER_CHECKPOINT = '/content/drive/MyDrive/teacher_final_ema.pth'
 ```
 
-4. Keep the original training settings unchanged. The notebook copies the folder into `Operation90_TwoStage/` and continues from the saved epoch. It stops with an error if the destination run folder already exists, so remove or rename an older folder with the same name first.
-5. Resuming the student also requires the teacher's exported weights. Either keep `teacher_final_ema.pth` in the teacher run folder, or set `TEACHER_CHECKPOINT` as described above.
+For teacher training, use `STAGE = 'teacher'` and leave `TEACHER_CHECKPOINT` empty.
 
-## References and attribution
+Keep the original settings when resuming, including the epoch count. This import step copies the source folder into the matching run folder and requires that destination not to exist. Rename an older destination folder if necessary to keep it safe.
 
-The methods used here include Wide Residual Networks, knowledge distillation, and self-supervised label augmentation. Background references are:
+If the original run folder is already in Drive, leave `RESUME_SOURCE_DIR` empty and rerun with the same settings to resume directly.
 
-- Zagoruyko and Komodakis, *Wide Residual Networks* (2016): https://arxiv.org/abs/1605.07146
-- Hinton, Vinyals, and Dean, *Distilling the Knowledge in a Neural Network* (2015): https://arxiv.org/abs/1503.02531
-- Lee, Hwang, and Shin, *Self-supervised Label Augmentation via Input Transformations* (2020): https://arxiv.org/abs/1910.05872
+Student training also needs the teacher weights at the configured path.
 
-These references describe the underlying ideas, not evidence of our measured results. 
+## References
+
+- Zagoruyko and Komodakis. [Wide Residual Networks](https://arxiv.org/abs/1605.07146), 2016.
+- Hinton, Vinyals, and Dean. [Distilling the Knowledge in a Neural Network](https://arxiv.org/abs/1503.02531), 2015.
+- Lee, Hwang, and Shin. [Self-supervised Label Augmentation via Input Transformations](https://arxiv.org/abs/1910.05872), 2020.
+
+Further references and our experiment comparisons are included in the project report.
